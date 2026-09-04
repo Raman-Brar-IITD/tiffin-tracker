@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tiffin Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -58,13 +61,16 @@
 
   <!-- DAILY ENTRY (admin) -->
   <section id="entry" class="tab-panel">
-    <h2>Add / Update a Day's Tiffins</h2>
+    <div class="entry-toolbar">
+      <h2>Daily Entry</h2>
+      <button id="sync-now-entry-btn" class="ghost-btn">↻ Sync Now</button>
+    </div>
     <div class="field-row">
       <label for="entry-date">Date</label>
       <input type="date" id="entry-date">
     </div>
-    <div id="entry-meals"></div>
-    <button id="save-entry" class="primary-btn">Save Day</button>
+    <div id="entry-summary"></div>
+    <button id="open-add-modal-btn" class="primary-btn fab-btn">+ Add / Edit Tiffins</button>
     <p id="entry-status" class="status-msg"></p>
   </section>
 
@@ -128,6 +134,30 @@
   </section>
 
 </main>
+
+<!-- ADD / EDIT TIFFINS MODAL -->
+<div id="add-modal-overlay" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3>Add Tiffins</h3>
+      <button id="close-modal-btn" class="icon-btn-plain" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-row">
+        <label for="modal-date">Date</label>
+        <input type="date" id="modal-date">
+      </div>
+      <h4 class="modal-subhead">Who's included?</h4>
+      <div id="modal-person-list"></div>
+      <h4 class="modal-subhead">Note <span class="optional-tag">optional</span></h4>
+      <textarea id="modal-note" placeholder="e.g. extra roti requested" rows="2"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button id="modal-cancel-btn" class="ghost-btn">Cancel</button>
+      <button id="modal-save-btn" class="primary-btn">Save</button>
+    </div>
+  </div>
+</div>
 
 <script src="script.js"></script>
 </body>

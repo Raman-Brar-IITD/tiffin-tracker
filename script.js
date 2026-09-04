@@ -133,7 +133,7 @@
     else if (tab === "weekly") renderWeekly();
     else if (tab === "monthly") renderMonthly();
     else if (tab === "people") renderPeople();
-    else if (tab === "entry") renderEntryForm();
+    else if (tab === "entry") renderEntrySummary();
   }
 
   async function syncFromRemote(showStatus) {
@@ -197,46 +197,95 @@
       if (btn.dataset.tab === "weekly") renderWeekly();
       if (btn.dataset.tab === "monthly") renderMonthly();
       if (btn.dataset.tab === "people") renderPeople();
-      if (btn.dataset.tab === "entry") renderEntryForm();
+      if (btn.dataset.tab === "entry") renderEntrySummary();
     });
   });
 
-  // ---------- ENTRY FORM ----------
+  // ---------- ENTRY SUMMARY (Daily Entry tab) ----------
   const entryDateInput = document.getElementById("entry-date");
-  const entryMealsWrap = document.getElementById("entry-meals");
+  const entrySummaryEl = document.getElementById("entry-summary");
   const entryStatus = document.getElementById("entry-status");
 
   entryDateInput.value = todayStr();
 
-  function renderEntryForm() {
-    entryMealsWrap.innerHTML = "";
-    entryStatus.textContent = "";
+  function buildDaySummaryHtml(dayData) {
+    const lines = MEALS.map((meal) => {
+      const mealEntries = dayData[meal] || {};
+      const namesWithQty = Object.keys(mealEntries).filter((n) => mealEntries[n] > 0);
+      if (namesWithQty.length === 0) return "";
+      const tag = `<span class="meal-tag ${meal}">${MEAL_LABEL[meal]}</span>`;
+      const parts = namesWithQty.map((n) => `${n}: ${mealEntries[n]}`).join(", ");
+      return `<div class="day-line">${tag}${parts}</div>`;
+    }).join("");
+    const note = dayData.note
+      ? `<div class="summary-note">📝 ${dayData.note}</div>`
+      : "";
+    return lines + note;
+  }
 
-    if (people.length === 0) {
-      entryMealsWrap.innerHTML =
-        '<p class="empty-msg">Add at least one person under "People &amp; Prices" before logging tiffins.</p>';
+  function renderEntrySummary() {
+    entryStatus.textContent = "";
+    const date = entryDateInput.value || todayStr();
+    const dayData = entries[date];
+
+    if (!dayData) {
+      entrySummaryEl.innerHTML = `<p class="empty-msg">Nothing logged for ${fmtDateNice(date)} yet.</p>`;
       return;
     }
 
-    const date = entryDateInput.value || todayStr();
+    const html = buildDaySummaryHtml(dayData);
+    entrySummaryEl.innerHTML = html
+      ? `<div class="summary-card">${html}</div>`
+      : `<p class="empty-msg">Nothing logged for ${fmtDateNice(date)} yet.</p>`;
+  }
+
+  entryDateInput.addEventListener("change", renderEntrySummary);
+
+  // ---------- ADD / EDIT TIFFINS MODAL ----------
+  const modalOverlay = document.getElementById("add-modal-overlay");
+  const modalDateInput = document.getElementById("modal-date");
+  const modalPersonList = document.getElementById("modal-person-list");
+  const modalNoteInput = document.getElementById("modal-note");
+
+  function buildModalPersonList() {
+    modalPersonList.innerHTML = "";
+
+    if (people.length === 0) {
+      modalPersonList.innerHTML =
+        '<p class="empty-msg">Add at least one person under "People &amp; Prices" first.</p>';
+      return;
+    }
+
+    const date = modalDateInput.value || todayStr();
     const dayData = entries[date] || {};
 
-    MEALS.forEach((meal) => {
-      const block = document.createElement("div");
-      block.className = "meal-block";
-      block.style.setProperty("--meal-color", `var(--${meal})`);
+    people.forEach((person) => {
+      const hasExisting = MEALS.some((meal) => dayData[meal] && dayData[meal][person] > 0);
 
-      const heading = document.createElement("h3");
-      heading.textContent = `${MEAL_EMOJI[meal]} ${MEAL_LABEL[meal]}`;
-      block.appendChild(heading);
+      const row = document.createElement("div");
+      row.className = "person-toggle-row";
 
-      people.forEach((person) => {
-        const row = document.createElement("div");
-        row.className = "person-qty-row";
+      const checkboxRow = document.createElement("label");
+      checkboxRow.className = "checkbox-row";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.personToggle = person;
+      checkbox.checked = hasExisting;
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = person;
+      checkboxRow.appendChild(checkbox);
+      checkboxRow.appendChild(nameSpan);
 
-        const label = document.createElement("label");
-        label.textContent = person;
+      const grid = document.createElement("div");
+      grid.className = "meal-qty-grid";
+      grid.dataset.personGrid = person;
+      if (!hasExisting) grid.hidden = true;
 
+      MEALS.forEach((meal) => {
+        const cell = document.createElement("div");
+        cell.className = "meal-qty-cell";
+        const label = document.createElement("span");
+        label.textContent = `${MEAL_EMOJI[meal]} ${MEAL_LABEL[meal]}`;
         const input = document.createElement("input");
         input.type = "number";
         input.min = "0";
@@ -244,47 +293,93 @@
         input.dataset.meal = meal;
         input.dataset.person = person;
         const existing = dayData[meal] && dayData[meal][person];
-        input.value = existing ? existing : "";
+        input.value = existing || "";
         input.placeholder = "0";
-
-        row.appendChild(label);
-        row.appendChild(input);
-        block.appendChild(row);
+        cell.appendChild(label);
+        cell.appendChild(input);
+        grid.appendChild(cell);
       });
 
-      entryMealsWrap.appendChild(block);
+      checkbox.addEventListener("change", () => {
+        grid.hidden = !checkbox.checked;
+      });
+
+      row.appendChild(checkboxRow);
+      row.appendChild(grid);
+      modalPersonList.appendChild(row);
     });
   }
 
-  entryDateInput.addEventListener("change", renderEntryForm);
+  function openModal() {
+    modalDateInput.value = entryDateInput.value || todayStr();
+    modalNoteInput.value = (entries[modalDateInput.value] && entries[modalDateInput.value].note) || "";
+    buildModalPersonList();
+    modalOverlay.classList.add("open");
+  }
 
-  document.getElementById("save-entry").addEventListener("click", () => {
-    const date = entryDateInput.value || todayStr();
-    const inputs = entryMealsWrap.querySelectorAll("input[data-meal]");
-    if (inputs.length === 0) return;
+  function closeModal() {
+    modalOverlay.classList.remove("open");
+  }
 
+  document.getElementById("open-add-modal-btn").addEventListener("click", openModal);
+  document.getElementById("close-modal-btn").addEventListener("click", closeModal);
+  document.getElementById("modal-cancel-btn").addEventListener("click", closeModal);
+  modalOverlay.addEventListener("click", (e) => {
+    if (e.target === modalOverlay) closeModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modalOverlay.classList.contains("open")) closeModal();
+  });
+
+  modalDateInput.addEventListener("change", () => {
+    modalNoteInput.value = (entries[modalDateInput.value] && entries[modalDateInput.value].note) || "";
+    buildModalPersonList();
+  });
+
+  document.getElementById("modal-save-btn").addEventListener("click", () => {
+    const date = modalDateInput.value || todayStr();
     const dayData = { breakfast: {}, lunch: {}, dinner: {} };
     let anyValue = false;
 
-    inputs.forEach((inp) => {
-      const qty = parseInt(inp.value, 10);
-      if (!isNaN(qty) && qty > 0) {
-        dayData[inp.dataset.meal][inp.dataset.person] = qty;
-        anyValue = true;
-      }
+    modalPersonList.querySelectorAll('input[data-person-toggle]').forEach((checkbox) => {
+      if (!checkbox.checked) return;
+      const person = checkbox.dataset.personToggle;
+      const grid = modalPersonList.querySelector(`[data-person-grid="${CSS.escape(person)}"]`);
+      grid.querySelectorAll("input[data-meal]").forEach((inp) => {
+        const qty = parseInt(inp.value, 10);
+        if (!isNaN(qty) && qty > 0) {
+          dayData[inp.dataset.meal][person] = qty;
+          anyValue = true;
+        }
+      });
     });
 
-    if (anyValue) {
+    const note = modalNoteInput.value.trim();
+    if (note) dayData.note = note;
+
+    if (anyValue || note) {
       entries[date] = dayData;
     } else {
       delete entries[date];
     }
     persistAll();
 
+    closeModal();
+    entryDateInput.value = date;
+    renderEntrySummary();
+
     entryStatus.textContent = `Saved entry for ${fmtDateNice(date)}.`;
     setTimeout(() => (entryStatus.textContent = ""), 2500);
 
     pushToRemote("saveDay", { date, dayData });
+  });
+
+  document.getElementById("sync-now-entry-btn").addEventListener("click", () => {
+    if (!syncUrl) {
+      setSyncStatus("No sync set up on this device yet.", true);
+      return;
+    }
+    syncFromRemote(true);
   });
 
   // ---------- LOG ----------
@@ -322,18 +417,7 @@
         header.appendChild(delBtn);
       }
       card.appendChild(header);
-
-      MEALS.forEach((meal) => {
-        const mealEntries = dayData[meal] || {};
-        const namesWithQty = Object.keys(mealEntries).filter((n) => mealEntries[n] > 0);
-        if (namesWithQty.length === 0) return;
-        const line = document.createElement("div");
-        line.className = "day-line";
-        const tag = `<span class="meal-tag ${meal}">${MEAL_LABEL[meal]}</span>`;
-        const parts = namesWithQty.map((n) => `${n}: ${mealEntries[n]}`).join(", ");
-        line.innerHTML = tag + parts;
-        card.appendChild(line);
-      });
+      card.insertAdjacentHTML("beforeend", buildDaySummaryHtml(dayData));
 
       wrap.appendChild(card);
     });
@@ -559,7 +643,7 @@
         persistAll();
         alert("Data imported successfully.");
         renderPeople();
-        renderEntryForm();
+        renderEntrySummary();
         pushToRemote("replaceAll", { people, prices, entries });
       } catch (err) {
         alert("Could not read that file. Make sure it's a valid export from this app.");
@@ -579,7 +663,7 @@
       entries = {};
       persistAll();
       renderPeople();
-      renderEntryForm();
+      renderEntrySummary();
       pushToRemote("replaceAll", { people, prices, entries });
     }
   });
@@ -624,7 +708,7 @@
   });
 
   // ---------- INIT ----------
-  renderEntryForm();
+  renderEntrySummary();
   renderPeople();
   renderWeekly();
   applyAuthVisibility();

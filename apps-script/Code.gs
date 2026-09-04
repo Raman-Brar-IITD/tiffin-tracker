@@ -185,6 +185,13 @@ function getEntries() {
     if (!entries[date]) entries[date] = { breakfast: {}, lunch: {}, dinner: {} };
     entries[date][meal][person] = qty;
   }
+
+  var notes = getNotes();
+  Object.keys(notes).forEach(function (date) {
+    if (!entries[date]) entries[date] = { breakfast: {}, lunch: {}, dinner: {} };
+    entries[date].note = notes[date];
+  });
+
   return entries;
 }
 
@@ -194,6 +201,41 @@ function deleteDayRows(date) {
   for (var i = values.length - 1; i >= 1; i--) {
     if (formatDateCell(values[i][0]) === date) sheet.deleteRow(i + 1);
   }
+}
+
+// ---------- Notes ----------
+
+function ensureNotesSheet() {
+  var sheet = getSheet('Notes');
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['Date', 'Note']);
+  }
+  return sheet;
+}
+
+function getNotes() {
+  var sheet = ensureNotesSheet();
+  var values = sheet.getDataRange().getValues();
+  var notes = {};
+  for (var i = 1; i < values.length; i++) {
+    var date = formatDateCell(values[i][0]);
+    var note = values[i][1];
+    if (date && note) notes[date] = String(note);
+  }
+  return notes;
+}
+
+function deleteNoteRow(date) {
+  var sheet = ensureNotesSheet();
+  var values = sheet.getDataRange().getValues();
+  for (var i = values.length - 1; i >= 1; i--) {
+    if (formatDateCell(values[i][0]) === date) sheet.deleteRow(i + 1);
+  }
+}
+
+function setNote(date, note) {
+  deleteNoteRow(date);
+  if (note) ensureNotesSheet().appendRow([date, note]);
 }
 
 function saveDay(payload) {
@@ -208,11 +250,13 @@ function saveDay(payload) {
       if (qty > 0) sheet.appendRow([date, meal, person, qty]);
     });
   });
+  setNote(date, dayData.note || '');
   return { entries: getEntries() };
 }
 
 function deleteDay(payload) {
   deleteDayRows(payload.date);
+  deleteNoteRow(payload.date);
   return { entries: getEntries() };
 }
 
@@ -242,6 +286,11 @@ function replaceAll(payload) {
   var entriesSheet = getSheet('Entries');
   entriesSheet.clear();
   entriesSheet.appendRow(['Date', 'Meal', 'Person', 'Qty']);
+
+  var notesSheet = getSheet('Notes');
+  notesSheet.clear();
+  notesSheet.appendRow(['Date', 'Note']);
+
   Object.keys(entries).forEach(function (date) {
     var dayData = entries[date];
     ['breakfast', 'lunch', 'dinner'].forEach(function (meal) {
@@ -251,6 +300,7 @@ function replaceAll(payload) {
         if (qty > 0) entriesSheet.appendRow([date, meal, person, qty]);
       });
     });
+    if (dayData && dayData.note) notesSheet.appendRow([date, dayData.note]);
   });
 
   return getAllData();

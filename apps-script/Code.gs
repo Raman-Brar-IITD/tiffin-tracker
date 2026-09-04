@@ -57,6 +57,9 @@ function doPost(e) {
     case 'savePrices':
       result = savePrices(payload);
       break;
+    case 'replaceAll':
+      result = replaceAll(payload);
+      break;
     default:
       result = { error: 'unknown action: ' + action };
   }
@@ -211,4 +214,44 @@ function saveDay(payload) {
 function deleteDay(payload) {
   deleteDayRows(payload.date);
   return { entries: getEntries() };
+}
+
+// Wholesale overwrite used by Import Data and Erase All Data, so those
+// bulk local changes actually land in the sheet instead of getting
+// silently reverted by the next sync pulling the old remote state.
+function replaceAll(payload) {
+  var people = payload.people || [];
+  var prices = payload.prices || { breakfast: 0, lunch: 0, dinner: 0 };
+  var entries = payload.entries || {};
+
+  var peopleSheet = getSheet('People');
+  peopleSheet.clear();
+  people.forEach(function (name) {
+    peopleSheet.appendRow([name]);
+  });
+
+  var pricesSheet = getSheet('Prices');
+  pricesSheet.clear();
+  pricesSheet.appendRow(['breakfast', 'lunch', 'dinner']);
+  pricesSheet.appendRow([
+    Number(prices.breakfast) || 0,
+    Number(prices.lunch) || 0,
+    Number(prices.dinner) || 0
+  ]);
+
+  var entriesSheet = getSheet('Entries');
+  entriesSheet.clear();
+  entriesSheet.appendRow(['Date', 'Meal', 'Person', 'Qty']);
+  Object.keys(entries).forEach(function (date) {
+    var dayData = entries[date];
+    ['breakfast', 'lunch', 'dinner'].forEach(function (meal) {
+      var mealData = (dayData && dayData[meal]) || {};
+      Object.keys(mealData).forEach(function (person) {
+        var qty = Number(mealData[person]);
+        if (qty > 0) entriesSheet.appendRow([date, meal, person, qty]);
+      });
+    });
+  });
+
+  return getAllData();
 }

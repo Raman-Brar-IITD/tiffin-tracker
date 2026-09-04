@@ -543,6 +543,7 @@
         alert("Data imported successfully.");
         renderPeople();
         renderEntryForm();
+        pushToRemote("replaceAll", { people, prices, entries });
       } catch (err) {
         alert("Could not read that file. Make sure it's a valid export from this app.");
       }
@@ -552,13 +553,17 @@
   });
 
   document.getElementById("reset-btn").addEventListener("click", () => {
-    if (confirm("This will permanently erase all people, prices, and logged tiffins. Continue?")) {
+    const warning = syncUrl
+      ? "This will permanently erase all people, prices, and logged tiffins — including in the synced Google Sheet. Continue?"
+      : "This will permanently erase all people, prices, and logged tiffins. Continue?";
+    if (confirm(warning)) {
       people = [];
       prices = { breakfast: 0, lunch: 0, dinner: 0 };
       entries = {};
       persistAll();
       renderPeople();
       renderEntryForm();
+      pushToRemote("replaceAll", { people, prices, entries });
     }
   });
 

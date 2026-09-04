@@ -7,52 +7,29 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="login-gate">
-  <form id="login-form" class="login-card">
-    <h1>🍱 Tiffin Tracker</h1>
-    <p>Enter the shared login to continue.</p>
-    <input type="text" id="login-user" placeholder="Username" autocomplete="username" autocapitalize="off">
-    <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password">
-    <button type="submit" class="primary-btn">Log In</button>
-    <p id="login-error" class="status-msg" style="color:var(--danger);"></p>
-  </form>
-</div>
-
-<div id="app-root">
 <header>
-  <h1>🍱 Tiffin Tracker</h1>
+  <div class="header-top">
+    <h1>🍱 Tiffin Tracker</h1>
+    <div class="header-actions">
+      <button id="refresh-btn" class="icon-btn" title="Refresh data">↻</button>
+      <button id="logout-btn" class="icon-btn" data-visibility="admin" title="Log out">Log Out</button>
+    </div>
+  </div>
   <nav>
-    <button class="tab-btn active" data-tab="entry">Daily Entry</button>
-    <button class="tab-btn" data-tab="log">Log</button>
-    <button class="tab-btn" data-tab="weekly">Weekly</button>
+    <button class="tab-btn active" data-tab="weekly">Weekly</button>
     <button class="tab-btn" data-tab="monthly">Monthly</button>
-    <button class="tab-btn" data-tab="people">People &amp; Prices</button>
+    <button class="tab-btn" data-tab="log">Log</button>
+    <button class="tab-btn" data-tab="entry" data-visibility="admin">Daily Entry</button>
+    <button class="tab-btn" data-tab="people" data-visibility="admin">People &amp; Prices</button>
+    <button class="tab-btn" data-tab="login" data-visibility="viewer">Admin Login</button>
   </nav>
+  <div id="global-status" class="global-status"></div>
 </header>
 
 <main>
 
-  <!-- DAILY ENTRY -->
-  <section id="entry" class="tab-panel active">
-    <h2>Add / Update a Day's Tiffins</h2>
-    <div class="field-row">
-      <label for="entry-date">Date</label>
-      <input type="date" id="entry-date">
-    </div>
-    <div id="entry-meals"></div>
-    <button id="save-entry" class="primary-btn">Save Day</button>
-    <p id="entry-status" class="status-msg"></p>
-  </section>
-
-  <!-- LOG -->
-  <section id="log" class="tab-panel">
-    <h2>Daily Log</h2>
-    <p class="hint">All recorded entries. You can delete a whole day's entry if you made a mistake.</p>
-    <div id="log-table-wrap"></div>
-  </section>
-
   <!-- WEEKLY -->
-  <section id="weekly" class="tab-panel">
+  <section id="weekly" class="tab-panel active">
     <h2>Weekly Summary</h2>
     <div class="field-row">
       <label for="week-pick">Pick any day in the week</label>
@@ -72,7 +49,26 @@
     <div id="monthly-table-wrap"></div>
   </section>
 
-  <!-- PEOPLE & PRICES -->
+  <!-- LOG -->
+  <section id="log" class="tab-panel">
+    <h2>Daily Log</h2>
+    <p class="hint">Every recorded day, newest first.</p>
+    <div id="log-table-wrap"></div>
+  </section>
+
+  <!-- DAILY ENTRY (admin) -->
+  <section id="entry" class="tab-panel">
+    <h2>Add / Update a Day's Tiffins</h2>
+    <div class="field-row">
+      <label for="entry-date">Date</label>
+      <input type="date" id="entry-date">
+    </div>
+    <div id="entry-meals"></div>
+    <button id="save-entry" class="primary-btn">Save Day</button>
+    <p id="entry-status" class="status-msg"></p>
+  </section>
+
+  <!-- PEOPLE & PRICES (admin) -->
   <section id="people" class="tab-panel">
     <h2>People</h2>
     <div class="add-person-row">
@@ -117,8 +113,21 @@
     <button id="reset-btn" class="danger-btn">Erase All Data</button>
   </section>
 
+  <!-- ADMIN LOGIN -->
+  <section id="login" class="tab-panel">
+    <div class="login-card">
+      <h2>Admin Login</h2>
+      <p class="hint">Anyone with this link can view the Weekly, Monthly and Log tabs. Log in here to add tiffins or manage people, prices and sync.</p>
+      <form id="login-form">
+        <input type="text" id="login-user" placeholder="Username" autocomplete="username" autocapitalize="off">
+        <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password">
+        <button type="submit" class="primary-btn">Log In</button>
+      </form>
+      <p id="login-error" class="status-msg" style="color:var(--danger);"></p>
+    </div>
+  </section>
+
 </main>
-</div>
 
 <script src="script.js"></script>
 </body>

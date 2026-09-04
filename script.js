@@ -3,6 +3,7 @@
 
   const MEALS = ["breakfast", "lunch", "dinner"];
   const MEAL_LABEL = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
+  const MEAL_EMOJI = { breakfast: "🌅", lunch: "🍛", dinner: "🌙" };
 
   // Shared login for this household's copy of the app. Since GitHub Pages
   // requires a public repo, this only screens out casual visitors — anyone
@@ -38,6 +39,14 @@
     localStorage.setItem(key, JSON.stringify(value));
   }
 
+  function isAdmin() {
+    return load(STORE_KEYS.authed, false);
+  }
+
+  function applyAuthVisibility() {
+    document.body.classList.toggle("is-admin", isAdmin());
+  }
+
   let people = load(STORE_KEYS.people, []);
   let prices = load(STORE_KEYS.prices, { breakfast: 0, lunch: 0, dinner: 0 });
   // entries: { "YYYY-MM-DD": { breakfast: {name: qty}, lunch: {...}, dinner: {...} } }
@@ -55,9 +64,15 @@
   const syncStatusEl = document.getElementById("sync-status");
 
   function setSyncStatus(text, isError) {
-    if (!syncStatusEl) return;
-    syncStatusEl.textContent = text;
-    syncStatusEl.style.color = isError ? "var(--danger)" : "var(--success)";
+    if (syncStatusEl) {
+      syncStatusEl.textContent = text;
+      syncStatusEl.style.color = isError ? "var(--danger)" : "var(--success)";
+    }
+    const globalEl = document.getElementById("global-status");
+    if (globalEl) {
+      globalEl.textContent = text;
+      globalEl.style.color = isError ? "#ffd9cf" : "rgba(255,255,255,0.85)";
+    }
   }
 
   // Apps Script Web Apps don't send CORS headers, so a cross-origin fetch()
@@ -212,7 +227,7 @@
       block.style.setProperty("--meal-color", `var(--${meal})`);
 
       const heading = document.createElement("h3");
-      heading.textContent = MEAL_LABEL[meal];
+      heading.textContent = `${MEAL_EMOJI[meal]} ${MEAL_LABEL[meal]}`;
       block.appendChild(heading);
 
       people.forEach((person) => {
@@ -292,18 +307,20 @@
       header.className = "day-card-header";
       header.innerHTML = `<strong>${fmtDateNice(date)}</strong>`;
 
-      const delBtn = document.createElement("button");
-      delBtn.className = "delete-day-btn";
-      delBtn.textContent = "Delete";
-      delBtn.addEventListener("click", () => {
-        if (confirm(`Delete all entries for ${fmtDateNice(date)}?`)) {
-          delete entries[date];
-          persistAll();
-          renderLog();
-          pushToRemote("deleteDay", { date });
-        }
-      });
-      header.appendChild(delBtn);
+      if (isAdmin()) {
+        const delBtn = document.createElement("button");
+        delBtn.className = "delete-day-btn";
+        delBtn.textContent = "Delete";
+        delBtn.addEventListener("click", () => {
+          if (confirm(`Delete all entries for ${fmtDateNice(date)}?`)) {
+            delete entries[date];
+            persistAll();
+            renderLog();
+            pushToRemote("deleteDay", { date });
+          }
+        });
+        header.appendChild(delBtn);
+      }
       card.appendChild(header);
 
       MEALS.forEach((meal) => {
@@ -567,13 +584,12 @@
     }
   });
 
-  // ---------- LOGIN GATE ----------
-  function unlockApp() {
-    document.getElementById("login-gate").style.display = "none";
-    document.getElementById("app-root").style.display = "block";
-    if (syncUrl) syncFromRemote(true);
+  function goToTab(tabName) {
+    const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+    if (btn) btn.click();
   }
 
+  // ---------- ADMIN LOGIN / LOGOUT ----------
   document.getElementById("login-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const user = document.getElementById("login-user").value.trim();
@@ -581,14 +597,36 @@
     if (user === AUTH_USER && pass === AUTH_PASS) {
       save(STORE_KEYS.authed, true);
       document.getElementById("login-error").textContent = "";
-      unlockApp();
+      document.getElementById("login-user").value = "";
+      document.getElementById("login-pass").value = "";
+      applyAuthVisibility();
+      goToTab("entry");
     } else {
       document.getElementById("login-error").textContent = "Incorrect username or password.";
     }
   });
 
+  document.getElementById("logout-btn").addEventListener("click", () => {
+    save(STORE_KEYS.authed, false);
+    applyAuthVisibility();
+    goToTab("weekly");
+  });
+
+  // ---------- REFRESH ----------
+  document.getElementById("refresh-btn").addEventListener("click", () => {
+    if (!syncUrl) {
+      setSyncStatus("No sync set up on this device yet.", true);
+      return;
+    }
+    const btn = document.getElementById("refresh-btn");
+    btn.classList.add("spinning");
+    syncFromRemote(true).finally(() => btn.classList.remove("spinning"));
+  });
+
   // ---------- INIT ----------
   renderEntryForm();
   renderPeople();
-  if (load(STORE_KEYS.authed, false)) unlockApp();
+  renderWeekly();
+  applyAuthVisibility();
+  if (syncUrl) syncFromRemote(true);
 })();

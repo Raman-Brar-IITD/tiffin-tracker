@@ -15,6 +15,51 @@
 
 * { box-sizing: border-box; }
 
+#app-root { display: none; }
+
+#login-gate {
+  position: fixed;
+  inset: 0;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  z-index: 100;
+}
+
+.login-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 2rem 1.75rem;
+  width: 100%;
+  max-width: 320px;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+
+.login-card h1 {
+  margin: 0 0 0.4rem;
+  font-size: 1.3rem;
+  color: var(--ink);
+}
+
+.login-card p {
+  margin: 0 0 1rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.login-card input {
+  width: 100%;
+  margin-bottom: 0.6rem;
+}
+
+.login-card .primary-btn {
+  width: 100%;
+  margin-top: 0.3rem;
+}
+
 body {
   margin: 0;
   font-family: "Segoe UI", system-ui, sans-serif;

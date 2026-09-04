@@ -7,6 +7,18 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="login-gate">
+  <form id="login-form" class="login-card">
+    <h1>🍱 Tiffin Tracker</h1>
+    <p>Enter the shared login to continue.</p>
+    <input type="text" id="login-user" placeholder="Username" autocomplete="username" autocapitalize="off">
+    <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password">
+    <button type="submit" class="primary-btn">Log In</button>
+    <p id="login-error" class="status-msg" style="color:var(--danger);"></p>
+  </form>
+</div>
+
+<div id="app-root">
 <header>
   <h1>🍱 Tiffin Tracker</h1>
   <nav>
@@ -91,6 +103,10 @@
       <label for="sync-url" style="width:auto;">URL</label>
       <input type="text" id="sync-url" placeholder="https://script.google.com/macros/s/AKfycb.../exec" style="flex:1;">
     </div>
+    <div class="field-row">
+      <label for="sync-token" style="width:auto;">Token</label>
+      <input type="text" id="sync-token" placeholder="shared secret token" style="flex:1;">
+    </div>
     <button id="save-sync-btn" class="primary-btn">Save &amp; Sync Now</button>
     <p id="sync-status" class="status-msg"></p>
 
@@ -102,6 +118,7 @@
   </section>
 
 </main>
+</div>
 
 <script src="script.js"></script>
 </body>

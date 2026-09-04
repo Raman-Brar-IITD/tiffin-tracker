@@ -5,12 +5,36 @@
  * Copy the resulting /exec URL into the app's "Sync Settings" panel.
  */
 
+// Set this in Project Settings > Script Properties (key: API_TOKEN) so it
+// never lives in the source code. If unset, the API is open to anyone with
+// the URL.
+function isAuthorized(token) {
+  var required = PropertiesService.getScriptProperties().getProperty('API_TOKEN');
+  if (!required) return true;
+  return token === required;
+}
+
 function doGet(e) {
-  return respond(getAllData());
+  if (!isAuthorized(e.parameter.token)) return respondToGet(e, { error: 'unauthorized' });
+  return respondToGet(e, getAllData());
+}
+
+// Apps Script Web Apps don't send CORS headers, so a cross-origin fetch()
+// GET is blocked by the browser. The frontend instead loads this as a
+// <script> tag (JSONP), which isn't subject to CORS, via ?callback=name.
+function respondToGet(e, obj) {
+  var callback = e.parameter.callback;
+  if (callback) {
+    return ContentService
+      .createTextOutput(callback + '(' + JSON.stringify(obj) + ');')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return respond(obj);
 }
 
 function doPost(e) {
   var body = JSON.parse(e.postData.contents);
+  if (!isAuthorized(body.token)) return respond({ error: 'unauthorized' });
   var action = body.action;
   var payload = body.payload || {};
   var result;

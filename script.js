@@ -4,11 +4,25 @@
   const MEALS = ["breakfast", "lunch", "dinner"];
   const MEAL_LABEL = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
 
+  // Shared login for this household's copy of the app. Since GitHub Pages
+  // requires a public repo, this only screens out casual visitors — anyone
+  // who views the page source can read it. Not real security.
+  const AUTH_USER = "tiffinwala";
+  const AUTH_PASS = "tiffinlelo";
+
+  // Pre-filled so a phone opening this page for the first time syncs
+  // immediately without needing the URL/token typed in by hand. Still
+  // overridable from the Sync Settings panel.
+  const DEFAULT_SYNC_URL = "https://script.google.com/macros/s/AKfycbwYrYldiqxpxt3ixXCxC_3FfWc3QX5peFrduEy6XffyLrIsonFm_doQm745LL4n-SeHeQ/exec";
+  const DEFAULT_SYNC_TOKEN = "RknxZu9OHyZNWfYbSLPWLcyI769RN6a2";
+
   const STORE_KEYS = {
     people: "tiffin_people",
     prices: "tiffin_prices",
     entries: "tiffin_entries",
-    syncUrl: "tiffin_sync_url"
+    syncUrl: "tiffin_sync_url",
+    syncToken: "tiffin_sync_token",
+    authed: "tiffin_authed"
   };
 
   function load(key, fallback) {
@@ -28,7 +42,8 @@
   let prices = load(STORE_KEYS.prices, { breakfast: 0, lunch: 0, dinner: 0 });
   // entries: { "YYYY-MM-DD": { breakfast: {name: qty}, lunch: {...}, dinner: {...} } }
   let entries = load(STORE_KEYS.entries, {});
-  let syncUrl = load(STORE_KEYS.syncUrl, "");
+  let syncUrl = load(STORE_KEYS.syncUrl, DEFAULT_SYNC_URL);
+  let syncToken = load(STORE_KEYS.syncToken, DEFAULT_SYNC_TOKEN);
 
   function persistAll() {
     save(STORE_KEYS.people, people);
@@ -45,20 +60,54 @@
     syncStatusEl.style.color = isError ? "var(--danger)" : "var(--success)";
   }
 
-  async function remoteGetAll() {
-    const res = await fetch(syncUrl, { method: "GET" });
-    if (!res.ok) throw new Error("Sync sheet returned " + res.status);
-    return res.json();
+  // Apps Script Web Apps don't send CORS headers, so a cross-origin fetch()
+  // GET gets blocked by the browser. JSONP (loading the response as a
+  // <script> tag) sidesteps that, since script loading isn't subject to CORS.
+  function jsonpRequest(url) {
+    return new Promise((resolve, reject) => {
+      const cbName = "tiffinCb" + Date.now() + Math.floor(Math.random() * 100000);
+      const script = document.createElement("script");
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("Sync request timed out"));
+      }, 15000);
+      function cleanup() {
+        delete window[cbName];
+        script.remove();
+        clearTimeout(timer);
+      }
+      window[cbName] = (data) => {
+        cleanup();
+        resolve(data);
+      };
+      script.src = url + (url.includes("?") ? "&" : "?") + "callback=" + cbName;
+      script.onerror = () => {
+        cleanup();
+        reject(new Error("Failed to reach sync sheet"));
+      };
+      document.body.appendChild(script);
+    });
   }
 
+  async function remoteGetAll() {
+    const url = syncUrl + (syncUrl.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(syncToken || "");
+    const data = await jsonpRequest(url);
+    if (data.error) throw new Error(data.error);
+    return data;
+  }
+
+  // For the same CORS reason, we can't read a POST's response either. We
+  // send it as a "simple" cross-origin request (which Apps Script does
+  // receive and process even though we can't read the reply), then re-fetch
+  // the canonical state via remoteGetAll() to confirm and reconcile.
   async function remotePost(action, payload) {
-    const res = await fetch(syncUrl, {
+    await fetch(syncUrl, {
       method: "POST",
+      mode: "no-cors",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action, payload })
+      body: JSON.stringify({ token: syncToken, action, payload })
     });
-    if (!res.ok) throw new Error("Sync sheet returned " + res.status);
-    return res.json();
+    return remoteGetAll();
   }
 
   function refreshActiveTab() {
@@ -91,7 +140,12 @@
   async function pushToRemote(action, payload) {
     if (!syncUrl) return;
     try {
-      await remotePost(action, payload);
+      const data = await remotePost(action, payload);
+      if (data.people) people = data.people;
+      if (data.prices) prices = data.prices;
+      if (data.entries) entries = data.entries;
+      persistAll();
+      refreshActiveTab();
       setSyncStatus("Synced with Google Sheet.", false);
     } catch (err) {
       setSyncStatus("Saved on this device, but sync to the sheet failed. Check your connection.", true);
@@ -443,10 +497,13 @@
 
   // ---------- SYNC SETTINGS ----------
   document.getElementById("sync-url").value = syncUrl;
+  document.getElementById("sync-token").value = syncToken;
 
   document.getElementById("save-sync-btn").addEventListener("click", () => {
     syncUrl = document.getElementById("sync-url").value.trim();
+    syncToken = document.getElementById("sync-token").value.trim();
     save(STORE_KEYS.syncUrl, syncUrl);
+    save(STORE_KEYS.syncToken, syncToken);
     if (syncUrl) {
       syncFromRemote(true);
     } else {
@@ -505,8 +562,28 @@
     }
   });
 
+  // ---------- LOGIN GATE ----------
+  function unlockApp() {
+    document.getElementById("login-gate").style.display = "none";
+    document.getElementById("app-root").style.display = "block";
+    if (syncUrl) syncFromRemote(true);
+  }
+
+  document.getElementById("login-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const user = document.getElementById("login-user").value.trim();
+    const pass = document.getElementById("login-pass").value;
+    if (user === AUTH_USER && pass === AUTH_PASS) {
+      save(STORE_KEYS.authed, true);
+      document.getElementById("login-error").textContent = "";
+      unlockApp();
+    } else {
+      document.getElementById("login-error").textContent = "Incorrect username or password.";
+    }
+  });
+
   // ---------- INIT ----------
   renderEntryForm();
   renderPeople();
-  if (syncUrl) syncFromRemote(true);
+  if (load(STORE_KEYS.authed, false)) unlockApp();
 })();

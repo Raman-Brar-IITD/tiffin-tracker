@@ -23,16 +23,20 @@
 body {
   margin: 0;
   font-family: "Inter", "Segoe UI", system-ui, sans-serif;
-  background: var(--bg);
+  background: radial-gradient(circle at top, #fdfaf5, var(--bg) 55%);
   color: var(--ink);
   line-height: 1.45;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* ---------- ADMIN / VIEWER VISIBILITY ---------- */
-[data-visibility="admin"] { display: none; }
-body.is-admin [data-visibility="admin"] { display: revert; }
-body.is-admin [data-visibility="viewer"] { display: none; }
+/* ---------- ADMIN / VIEWER VISIBILITY ----------
+   Qualified with the element's own class (not just the bare attribute
+   selector) so specificity beats .tab-btn / .icon-btn regardless of the
+   two blocks' order in this file. */
+.tab-btn[data-visibility="admin"], .icon-btn[data-visibility="admin"] { display: none; }
+body.is-admin .tab-btn[data-visibility="admin"] { display: flex; }
+body.is-admin .icon-btn[data-visibility="admin"] { display: inline-block; }
+body.is-admin .tab-btn[data-visibility="viewer"] { display: none; }
 
 /* ---------- HEADER ---------- */
 header {
@@ -82,48 +86,68 @@ header h1 {
 #refresh-btn.spinning { animation: spin 0.7s linear; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-nav {
-  display: flex;
-  gap: 0.3rem;
-  overflow-x: auto;
-  padding-bottom: 0.7rem;
-  scrollbar-width: none;
-}
-nav::-webkit-scrollbar { display: none; }
-
 .global-status {
   font-size: 0.78rem;
   color: rgba(255,255,255,0.85);
-  padding-bottom: 0.5rem;
+  padding-bottom: 0.7rem;
   min-height: 1.1em;
 }
 
-.tab-btn {
-  background: transparent;
-  border: none;
-  color: rgba(255,255,255,0.8);
-  padding: 0.5rem 0.9rem;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-family: inherit;
-  white-space: nowrap;
-  border-radius: 20px;
-  transition: background 0.15s ease, color 0.15s ease;
+/* ---------- BOTTOM NAV ---------- */
+#bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -6px 24px rgba(38, 32, 25, 0.08);
+  padding: 0.35rem 0.25rem calc(0.35rem + env(safe-area-inset-bottom, 0px));
 }
 
-.tab-btn:hover { background: rgba(255,255,255,0.12); }
+.tab-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  background: transparent;
+  border: none;
+  color: var(--ink-soft);
+  padding: 0.4rem 0.2rem;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-family: inherit;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease, transform 0.1s ease;
+}
+
+.tab-btn:active { transform: scale(0.93); }
+
+.tab-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
 
 .tab-btn.active {
   color: var(--accent-dark);
-  background: #fff;
-  font-weight: 700;
+}
+.tab-btn.active .tab-icon {
+  transform: translateY(-2px) scale(1.08);
 }
 
 /* ---------- LAYOUT ---------- */
 main {
   max-width: 640px;
   margin: 0 auto;
-  padding: 1.25rem;
+  padding: 1.25rem 1.25rem calc(5.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 .tab-panel { display: none; }
@@ -396,11 +420,11 @@ ul#people-list button {
 }
 .price-row label { width: 100px; font-weight: 600; }
 
-/* ---------- LOGIN ---------- */
-.login-card {
+/* ---------- PIN LOGIN ---------- */
+.pin-card {
   background: var(--card-bg);
   border-radius: var(--radius);
-  padding: 1.75rem;
+  padding: 2rem 1.5rem;
   max-width: 340px;
   margin: 1rem auto 0;
   text-align: center;
@@ -408,20 +432,67 @@ ul#people-list button {
   border: 1px solid var(--border);
 }
 
-.login-card h2 { margin-top: 0; }
+.pin-lock-icon {
+  font-size: 2.2rem;
+  margin-bottom: 0.3rem;
+}
 
-.login-card p { margin: 0 0 1.1rem; }
+.pin-card h2 { margin-top: 0; }
+.pin-card p { margin: 0 0 1.3rem; }
 
-#login-form {
+.pin-dots {
   display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+  justify-content: center;
+  gap: 0.9rem;
+  margin-bottom: 0.6rem;
 }
 
-.login-card .primary-btn {
-  width: 100%;
-  margin-top: 0.3rem;
+.pin-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
+
+.pin-dot.filled {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.15);
+}
+
+.pin-card.shake { animation: pin-shake 0.4s ease; }
+@keyframes pin-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-10px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(4px); }
+}
+
+.pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.7rem;
+  margin-top: 1.2rem;
+}
+
+.pin-keypad button {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: #fff;
+  font-size: 1.2rem;
+  font-family: inherit;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.08s ease;
+}
+.pin-keypad button:hover { background: var(--accent-soft); border-color: var(--accent); }
+.pin-keypad button:active { transform: scale(0.92); background: var(--accent-soft); }
+
+.pin-key-back { font-size: 1rem !important; color: var(--ink-soft); }
 
 /* ---------- ADD/EDIT TIFFINS MODAL ---------- */
 .modal-overlay {
@@ -561,7 +632,6 @@ ul#people-list button {
 
 @media (max-width: 480px) {
   header h1 { font-size: 1.15rem; }
-  .tab-btn { padding: 0.5rem 0.75rem; font-size: 0.85rem; }
   th, td { padding: 0.45rem 0.45rem; font-size: 0.82rem; }
   .price-row label { width: 80px; }
 

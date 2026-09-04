@@ -18,14 +18,6 @@
       <button id="logout-btn" class="icon-btn" data-visibility="admin" title="Log out">Log Out</button>
     </div>
   </div>
-  <nav>
-    <button class="tab-btn active" data-tab="weekly">Weekly</button>
-    <button class="tab-btn" data-tab="monthly">Monthly</button>
-    <button class="tab-btn" data-tab="log">Log</button>
-    <button class="tab-btn" data-tab="entry" data-visibility="admin">Daily Entry</button>
-    <button class="tab-btn" data-tab="people" data-visibility="admin">People &amp; Prices</button>
-    <button class="tab-btn" data-tab="login" data-visibility="viewer">Admin Login</button>
-  </nav>
   <div id="global-status" class="global-status"></div>
 </header>
 
@@ -121,19 +113,44 @@
 
   <!-- ADMIN LOGIN -->
   <section id="login" class="tab-panel">
-    <div class="login-card">
-      <h2>Admin Login</h2>
-      <p class="hint">Anyone with this link can view the Weekly, Monthly and Log tabs. Log in here to add tiffins or manage people, prices and sync.</p>
-      <form id="login-form">
-        <input type="text" id="login-user" placeholder="Username" autocomplete="username" autocapitalize="off">
-        <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password">
-        <button type="submit" class="primary-btn">Log In</button>
-      </form>
+    <div class="pin-card">
+      <div class="pin-lock-icon">🔐</div>
+      <h2>Admin Access</h2>
+      <p class="hint">Anyone with this link can view Weekly, Monthly and Log. Enter the PIN to add tiffins or manage settings.</p>
+      <div class="pin-dots" id="pin-dots">
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+      </div>
       <p id="login-error" class="status-msg" style="color:var(--danger);"></p>
+      <div class="pin-keypad" id="pin-keypad">
+        <button data-key="1">1</button>
+        <button data-key="2">2</button>
+        <button data-key="3">3</button>
+        <button data-key="4">4</button>
+        <button data-key="5">5</button>
+        <button data-key="6">6</button>
+        <button data-key="7">7</button>
+        <button data-key="8">8</button>
+        <button data-key="9">9</button>
+        <span></span>
+        <button data-key="0">0</button>
+        <button data-key="back" class="pin-key-back" aria-label="Backspace">⌫</button>
+      </div>
     </div>
   </section>
 
 </main>
+
+<nav id="bottom-nav">
+  <button class="tab-btn active" data-tab="weekly"><span class="tab-icon">📊</span><span class="tab-label">Weekly</span></button>
+  <button class="tab-btn" data-tab="monthly"><span class="tab-icon">🗓️</span><span class="tab-label">Monthly</span></button>
+  <button class="tab-btn" data-tab="log"><span class="tab-icon">📜</span><span class="tab-label">Log</span></button>
+  <button class="tab-btn" data-tab="entry" data-visibility="admin"><span class="tab-icon">➕</span><span class="tab-label">Add</span></button>
+  <button class="tab-btn" data-tab="people" data-visibility="admin"><span class="tab-icon">👥</span><span class="tab-label">People</span></button>
+  <button class="tab-btn" data-tab="login" data-visibility="viewer"><span class="tab-icon">🔐</span><span class="tab-label">Admin</span></button>
+</nav>
 
 <!-- ADD / EDIT TIFFINS MODAL -->
 <div id="add-modal-overlay" class="modal-overlay">

@@ -5,11 +5,10 @@
   const MEAL_LABEL = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
   const MEAL_EMOJI = { breakfast: "🌅", lunch: "🍛", dinner: "🌙" };
 
-  // Shared login for this household's copy of the app. Since GitHub Pages
+  // Shared PIN for this household's copy of the app. Since GitHub Pages
   // requires a public repo, this only screens out casual visitors — anyone
   // who views the page source can read it. Not real security.
-  const AUTH_USER = "tiffinwala";
-  const AUTH_PASS = "tiffinlelo";
+  const ADMIN_PIN = "7352";
 
   // Pre-filled so a phone opening this page for the first time syncs
   // immediately without needing the URL/token typed in by hand. Still
@@ -198,6 +197,7 @@
       if (btn.dataset.tab === "monthly") renderMonthly();
       if (btn.dataset.tab === "people") renderPeople();
       if (btn.dataset.tab === "entry") renderEntrySummary();
+      if (btn.dataset.tab === "login") resetPin();
     });
   });
 
@@ -673,21 +673,49 @@
     if (btn) btn.click();
   }
 
-  // ---------- ADMIN LOGIN / LOGOUT ----------
-  document.getElementById("login-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const user = document.getElementById("login-user").value.trim();
-    const pass = document.getElementById("login-pass").value;
-    if (user === AUTH_USER && pass === AUTH_PASS) {
+  // ---------- ADMIN PIN LOGIN / LOGOUT ----------
+  const pinDotsEls = document.querySelectorAll("#pin-dots .pin-dot");
+  const pinKeypad = document.getElementById("pin-keypad");
+  const pinCardEl = document.querySelector(".pin-card");
+  const loginErrorEl = document.getElementById("login-error");
+  let pinBuffer = "";
+
+  function updatePinDots() {
+    pinDotsEls.forEach((dot, i) => dot.classList.toggle("filled", i < pinBuffer.length));
+  }
+
+  function resetPin() {
+    pinBuffer = "";
+    updatePinDots();
+  }
+
+  function checkPin() {
+    if (pinBuffer === ADMIN_PIN) {
       save(STORE_KEYS.authed, true);
-      document.getElementById("login-error").textContent = "";
-      document.getElementById("login-user").value = "";
-      document.getElementById("login-pass").value = "";
+      loginErrorEl.textContent = "";
+      resetPin();
       applyAuthVisibility();
       goToTab("entry");
     } else {
-      document.getElementById("login-error").textContent = "Incorrect username or password.";
+      loginErrorEl.textContent = "Incorrect PIN.";
+      pinCardEl.classList.add("shake");
+      setTimeout(() => pinCardEl.classList.remove("shake"), 400);
+      setTimeout(resetPin, 250);
     }
+  }
+
+  pinKeypad.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-key]");
+    if (!btn) return;
+    if (btn.dataset.key === "back") {
+      pinBuffer = pinBuffer.slice(0, -1);
+      updatePinDots();
+      return;
+    }
+    if (pinBuffer.length >= 4) return;
+    pinBuffer += btn.dataset.key;
+    updatePinDots();
+    if (pinBuffer.length === 4) setTimeout(checkPin, 150);
   });
 
   document.getElementById("logout-btn").addEventListener("click", () => {

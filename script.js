@@ -13,7 +13,7 @@
   // Pre-filled so a phone opening this page for the first time syncs
   // immediately without needing the URL/token typed in by hand. Still
   // overridable from the Sync Settings panel.
-  const DEFAULT_SYNC_URL = "https://script.google.com/macros/s/AKfycbwYrYldiqxpxt3ixXCxC_3FfWc3QX5peFrduEy6XffyLrIsonFm_doQm745LL4n-SeHeQ/exec";
+  const DEFAULT_SYNC_URL = "https://script.google.com/macros/s/AKfycbwPXiQFBokBweoNq2QR7_rslSAg1RWyQ35eI9HOYl4DvYb3SVyh4uG-7IysUbPs_p6f6Q/exec";
   const DEFAULT_SYNC_TOKEN = "RknxZu9OHyZNWfYbSLPWLcyI769RN6a2";
 
   const STORE_KEYS = {

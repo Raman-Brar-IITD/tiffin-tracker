@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tiffin Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>🍱 Tiffin Tracker</h1>
+  <nav>
+    <button class="tab-btn active" data-tab="entry">Daily Entry</button>
+    <button class="tab-btn" data-tab="log">Log</button>
+    <button class="tab-btn" data-tab="weekly">Weekly</button>
+    <button class="tab-btn" data-tab="monthly">Monthly</button>
+    <button class="tab-btn" data-tab="people">People &amp; Prices</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- DAILY ENTRY -->
+  <section id="entry" class="tab-panel active">
+    <h2>Add / Update a Day's Tiffins</h2>
+    <div class="field-row">
+      <label for="entry-date">Date</label>
+      <input type="date" id="entry-date">
+    </div>
+    <div id="entry-meals"></div>
+    <button id="save-entry" class="primary-btn">Save Day</button>
+    <p id="entry-status" class="status-msg"></p>
+  </section>
+
+  <!-- LOG -->
+  <section id="log" class="tab-panel">
+    <h2>Daily Log</h2>
+    <p class="hint">All recorded entries. You can delete a whole day's entry if you made a mistake.</p>
+    <div id="log-table-wrap"></div>
+  </section>
+
+  <!-- WEEKLY -->
+  <section id="weekly" class="tab-panel">
+    <h2>Weekly Summary</h2>
+    <div class="field-row">
+      <label for="week-pick">Pick any day in the week</label>
+      <input type="date" id="week-pick">
+    </div>
+    <div id="weekly-range" class="hint"></div>
+    <div id="weekly-table-wrap"></div>
+  </section>
+
+  <!-- MONTHLY -->
+  <section id="monthly" class="tab-panel">
+    <h2>Monthly Summary</h2>
+    <div class="field-row">
+      <label for="month-pick">Pick month</label>
+      <input type="month" id="month-pick">
+    </div>
+    <div id="monthly-table-wrap"></div>
+  </section>
+
+  <!-- PEOPLE & PRICES -->
+  <section id="people" class="tab-panel">
+    <h2>People</h2>
+    <div class="add-person-row">
+      <input type="text" id="new-person-name" placeholder="Person's name">
+      <button id="add-person-btn" class="primary-btn">Add Person</button>
+    </div>
+    <ul id="people-list"></ul>
+
+    <h2>Price per Tiffin (₹)</h2>
+    <div class="price-row">
+      <label>Breakfast</label>
+      <input type="number" id="price-breakfast" min="0" step="0.5">
+    </div>
+    <div class="price-row">
+      <label>Lunch</label>
+      <input type="number" id="price-lunch" min="0" step="0.5">
+    </div>
+    <div class="price-row">
+      <label>Dinner</label>
+      <input type="number" id="price-dinner" min="0" step="0.5">
+    </div>
+    <button id="save-prices-btn" class="primary-btn">Save Prices</button>
+    <p id="price-status" class="status-msg"></p>
+
+    <h2>Sync (Google Sheet)</h2>
+    <p class="hint">Paste the Web App URL from your deployed Apps Script here so this device reads/writes the shared Google Sheet instead of just this browser.</p>
+    <div class="field-row">
+      <label for="sync-url" style="width:auto;">URL</label>
+      <input type="text" id="sync-url" placeholder="https://script.google.com/macros/s/AKfycb.../exec" style="flex:1;">
+    </div>
+    <button id="save-sync-btn" class="primary-btn">Save &amp; Sync Now</button>
+    <p id="sync-status" class="status-msg"></p>
+
+    <h2>Data</h2>
+    <button id="export-btn">Export Data (JSON)</button>
+    <button id="import-btn">Import Data (JSON)</button>
+    <input type="file" id="import-file" accept="application/json" style="display:none">
+    <button id="reset-btn" class="danger-btn">Erase All Data</button>
+  </section>
+
+</main>
+
+<script src="script.js"></script>
+</body>
+</html>

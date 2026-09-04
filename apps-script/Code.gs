@@ -1,0 +1,190 @@
+/**
+ * Tiffin Tracker backend. Deploy this as a Web App (Extensions > Apps Script
+ * inside a Google Sheet, paste this file, then Deploy > New deployment > Web app).
+ * Execute as: Me. Who has access: Anyone.
+ * Copy the resulting /exec URL into the app's "Sync Settings" panel.
+ */
+
+function doGet(e) {
+  return respond(getAllData());
+}
+
+function doPost(e) {
+  var body = JSON.parse(e.postData.contents);
+  var action = body.action;
+  var payload = body.payload || {};
+  var result;
+  switch (action) {
+    case 'getAll':
+      result = getAllData();
+      break;
+    case 'saveDay':
+      result = saveDay(payload);
+      break;
+    case 'deleteDay':
+      result = deleteDay(payload);
+      break;
+    case 'addPerson':
+      result = addPerson(payload);
+      break;
+    case 'removePerson':
+      result = removePerson(payload);
+      break;
+    case 'savePrices':
+      result = savePrices(payload);
+      break;
+    default:
+      result = { error: 'unknown action: ' + action };
+  }
+  return respond(result);
+}
+
+function respond(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function getSheet(name) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name);
+  return sheet;
+}
+
+function getAllData() {
+  return {
+    people: getPeople(),
+    prices: getPrices(),
+    entries: getEntries()
+  };
+}
+
+// ---------- People ----------
+
+function getPeople() {
+  var sheet = getSheet('People');
+  var values = sheet.getDataRange().getValues();
+  var people = [];
+  for (var i = 0; i < values.length; i++) {
+    var name = values[i][0];
+    if (name) people.push(String(name));
+  }
+  return people;
+}
+
+function addPerson(payload) {
+  var name = String(payload.name || '').trim();
+  if (!name) return { error: 'no name given' };
+  var people = getPeople();
+  if (people.indexOf(name) === -1) {
+    getSheet('People').appendRow([name]);
+  }
+  return { people: getPeople() };
+}
+
+function removePerson(payload) {
+  var name = String(payload.name || '').trim();
+  var sheet = getSheet('People');
+  var values = sheet.getDataRange().getValues();
+  for (var i = values.length - 1; i >= 0; i--) {
+    if (values[i][0] === name) sheet.deleteRow(i + 1);
+  }
+  return { people: getPeople() };
+}
+
+// ---------- Prices ----------
+
+function ensurePricesSheet() {
+  var sheet = getSheet('Prices');
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['breakfast', 'lunch', 'dinner']);
+    sheet.appendRow([0, 0, 0]);
+  }
+  return sheet;
+}
+
+function getPrices() {
+  var sheet = ensurePricesSheet();
+  var values = sheet.getRange(2, 1, 1, 3).getValues()[0];
+  return {
+    breakfast: Number(values[0]) || 0,
+    lunch: Number(values[1]) || 0,
+    dinner: Number(values[2]) || 0
+  };
+}
+
+function savePrices(payload) {
+  var sheet = ensurePricesSheet();
+  sheet.getRange(2, 1, 1, 3).setValues([[
+    Number(payload.breakfast) || 0,
+    Number(payload.lunch) || 0,
+    Number(payload.dinner) || 0
+  ]]);
+  return getPrices();
+}
+
+// ---------- Entries ----------
+
+function ensureEntriesSheet() {
+  var sheet = getSheet('Entries');
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['Date', 'Meal', 'Person', 'Qty']);
+  }
+  return sheet;
+}
+
+function formatDateCell(val) {
+  if (val instanceof Date) {
+    var y = val.getFullYear();
+    var m = String(val.getMonth() + 1);
+    var d = String(val.getDate());
+    if (m.length < 2) m = '0' + m;
+    if (d.length < 2) d = '0' + d;
+    return y + '-' + m + '-' + d;
+  }
+  return String(val);
+}
+
+function getEntries() {
+  var sheet = ensureEntriesSheet();
+  var values = sheet.getDataRange().getValues();
+  var entries = {};
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
+    var date = formatDateCell(row[0]);
+    var meal = row[1];
+    var person = row[2];
+    var qty = Number(row[3]);
+    if (!date || !meal || !person || !qty) continue;
+    if (!entries[date]) entries[date] = { breakfast: {}, lunch: {}, dinner: {} };
+    entries[date][meal][person] = qty;
+  }
+  return entries;
+}
+
+function deleteDayRows(date) {
+  var sheet = ensureEntriesSheet();
+  var values = sheet.getDataRange().getValues();
+  for (var i = values.length - 1; i >= 1; i--) {
+    if (formatDateCell(values[i][0]) === date) sheet.deleteRow(i + 1);
+  }
+}
+
+function saveDay(payload) {
+  var date = payload.date;
+  var dayData = payload.dayData || {};
+  deleteDayRows(date);
+  var sheet = ensureEntriesSheet();
+  ['breakfast', 'lunch', 'dinner'].forEach(function (meal) {
+    var mealData = dayData[meal] || {};
+    Object.keys(mealData).forEach(function (person) {
+      var qty = Number(mealData[person]);
+      if (qty > 0) sheet.appendRow([date, meal, person, qty]);
+    });
+  });
+  return { entries: getEntries() };
+}
+
+function deleteDay(payload) {
+  deleteDayRows(payload.date);
+  return { entries: getEntries() };
+}

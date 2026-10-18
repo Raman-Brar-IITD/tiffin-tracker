@@ -75,19 +75,13 @@
     </div>
     <ul id="people-list"></ul>
 
-    <h2>Price per Tiffin (₹)</h2>
-    <div class="price-row">
-      <label>Breakfast</label>
-      <input type="number" id="price-breakfast" min="0" step="0.5">
+    <h2>Tiffin Services</h2>
+    <p class="hint">Add each tiffin provider, then set its price per meal (₹). You'll pick the provider when you log tiffins.</p>
+    <div class="add-person-row">
+      <input type="text" id="new-service-name" placeholder="Service name">
+      <button id="add-service-btn" class="primary-btn">Add Service</button>
     </div>
-    <div class="price-row">
-      <label>Lunch</label>
-      <input type="number" id="price-lunch" min="0" step="0.5">
-    </div>
-    <div class="price-row">
-      <label>Dinner</label>
-      <input type="number" id="price-dinner" min="0" step="0.5">
-    </div>
+    <div id="services-list"></div>
     <button id="save-prices-btn" class="primary-btn">Save Prices</button>
     <p id="price-status" class="status-msg"></p>
 
@@ -163,6 +157,11 @@
       <div class="field-row">
         <label for="modal-date">Date</label>
         <input type="date" id="modal-date">
+      </div>
+      <div id="modal-service-section">
+        <h4 class="modal-subhead">Tiffin service</h4>
+        <div id="modal-service-chips" class="chip-row"></div>
+        <p id="modal-service-hint" class="service-price-hint"></p>
       </div>
       <h4 class="modal-subhead">Who's included?</h4>
       <div id="modal-person-list"></div>

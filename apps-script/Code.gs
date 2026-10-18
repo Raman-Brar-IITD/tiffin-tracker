@@ -5,6 +5,10 @@
  * Copy the resulting /exec URL into the app's "Sync Settings" panel.
  */
 
+// Entries saved before tiffin services existed have a blank Service cell and
+// belong to this service. Must match DEFAULT_SERVICE_ID in script.js.
+var DEFAULT_SERVICE_ID = 's1';
+
 // Set this in Project Settings > Script Properties (key: API_TOKEN) so it
 // never lives in the source code. If unset, the API is open to anyone with
 // the URL.
@@ -57,6 +61,9 @@ function doPost(e) {
     case 'savePrices':
       result = savePrices(payload);
       break;
+    case 'saveServices':
+      result = saveServices(payload);
+      break;
     case 'replaceAll':
       result = replaceAll(payload);
       break;
@@ -78,9 +85,12 @@ function getSheet(name) {
 }
 
 function getAllData() {
+  var services = getServices();
   return {
     people: getPeople(),
-    prices: getPrices(),
+    services: services,
+    // First service's prices, so a not-yet-refreshed older page still works.
+    prices: services[0].prices,
     entries: getEntries()
   };
 }
@@ -139,24 +149,108 @@ function getPrices() {
   };
 }
 
+// Only used by an older page that still has a single global price list: it
+// updates the default service.
 function savePrices(payload) {
-  var sheet = ensurePricesSheet();
-  sheet.getRange(2, 1, 1, 3).setValues([[
-    Number(payload.breakfast) || 0,
-    Number(payload.lunch) || 0,
-    Number(payload.dinner) || 0
-  ]]);
-  return getPrices();
+  var services = getServices();
+  var target = services[0];
+  services.forEach(function (s) {
+    if (s.id === DEFAULT_SERVICE_ID) target = s;
+  });
+  target.prices = {
+    breakfast: Number(payload.breakfast) || 0,
+    lunch: Number(payload.lunch) || 0,
+    dinner: Number(payload.dinner) || 0
+  };
+  writeServices(services);
+  return getAllData();
+}
+
+// ---------- Services ----------
+
+function writeServices(services) {
+  var sheet = getSheet('Services');
+  sheet.clear();
+  var rows = [['Id', 'Name', 'Breakfast', 'Lunch', 'Dinner']];
+  services.forEach(function (s) {
+    rows.push([s.id, s.name, s.prices.breakfast, s.prices.lunch, s.prices.dinner]);
+  });
+  sheet.getRange(1, 1, rows.length, 5).setValues(rows);
+}
+
+function cleanServices(list) {
+  var seen = {};
+  var out = [];
+  (list || []).forEach(function (s) {
+    var name = String((s && s.name) || '').trim();
+    if (!name) return;
+    var id = String(s.id || '') || 's' + new Date().getTime().toString(36) + out.length;
+    if (seen[id]) return;
+    seen[id] = true;
+    var p = s.prices || {};
+    out.push({
+      id: id,
+      name: name,
+      prices: {
+        breakfast: Number(p.breakfast) || 0,
+        lunch: Number(p.lunch) || 0,
+        dinner: Number(p.dinner) || 0
+      }
+    });
+  });
+  return out;
+}
+
+// On first use there is no Services sheet yet: seed it with one service
+// carrying the old single price list, so existing entries keep their price.
+function getServices() {
+  var sheet = getSheet('Services');
+  var values = sheet.getDataRange().getValues();
+  var services = [];
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
+    if (!row[0] || !row[1]) continue;
+    services.push({
+      id: String(row[0]),
+      name: String(row[1]),
+      prices: {
+        breakfast: Number(row[2]) || 0,
+        lunch: Number(row[3]) || 0,
+        dinner: Number(row[4]) || 0
+      }
+    });
+  }
+  if (services.length === 0) {
+    services = [{ id: DEFAULT_SERVICE_ID, name: 'Tiffin 1', prices: getPrices() }];
+    writeServices(services);
+  }
+  return services;
+}
+
+function saveServices(payload) {
+  var services = cleanServices(payload.services);
+  if (services.length === 0) return { error: 'at least one service is required' };
+  writeServices(services);
+  return getAllData();
 }
 
 // ---------- Entries ----------
 
+var MEALS = ['breakfast', 'lunch', 'dinner'];
+
 function ensureEntriesSheet() {
   var sheet = getSheet('Entries');
   if (sheet.getLastRow() === 0) {
-    sheet.appendRow(['Date', 'Meal', 'Person', 'Qty']);
+    sheet.appendRow(['Date', 'Meal', 'Person', 'Qty', 'Service']);
+  } else if (sheet.getRange(1, 5).getValue() !== 'Service') {
+    // Sheet created before tiffin services existed: add the column header.
+    sheet.getRange(1, 5).setValue('Service');
   }
   return sheet;
+}
+
+function serviceOfRow(cell) {
+  return String(cell || '') || DEFAULT_SERVICE_ID;
 }
 
 function formatDateCell(val) {
@@ -181,25 +275,32 @@ function getEntries() {
     var meal = row[1];
     var person = row[2];
     var qty = Number(row[3]);
-    if (!date || !meal || !person || !qty) continue;
-    if (!entries[date]) entries[date] = { breakfast: {}, lunch: {}, dinner: {} };
-    entries[date][meal][person] = qty;
+    if (!date || MEALS.indexOf(meal) === -1 || !person || !qty) continue;
+    var sid = serviceOfRow(row[4]);
+    if (!entries[date]) entries[date] = { byService: {} };
+    if (!entries[date].byService[sid]) {
+      entries[date].byService[sid] = { breakfast: {}, lunch: {}, dinner: {} };
+    }
+    entries[date].byService[sid][meal][person] = qty;
   }
 
   var notes = getNotes();
   Object.keys(notes).forEach(function (date) {
-    if (!entries[date]) entries[date] = { breakfast: {}, lunch: {}, dinner: {} };
+    if (!entries[date]) entries[date] = { byService: {} };
     entries[date].note = notes[date];
   });
 
   return entries;
 }
 
-function deleteDayRows(date) {
+// With a serviceId, only that service's rows for the day are removed.
+function deleteDayRows(date, serviceId) {
   var sheet = ensureEntriesSheet();
   var values = sheet.getDataRange().getValues();
   for (var i = values.length - 1; i >= 1; i--) {
-    if (formatDateCell(values[i][0]) === date) sheet.deleteRow(i + 1);
+    if (formatDateCell(values[i][0]) !== date) continue;
+    if (serviceId && serviceOfRow(values[i][4]) !== serviceId) continue;
+    sheet.deleteRow(i + 1);
   }
 }
 
@@ -238,19 +339,25 @@ function setNote(date, note) {
   if (note) ensureNotesSheet().appendRow([date, note]);
 }
 
+// Replaces one service's tiffins for a day (the other services' rows stay)
+// and sets the day's note. An older page sends { date, dayData } with no
+// service; that is treated as the default service.
 function saveDay(payload) {
   var date = payload.date;
-  var dayData = payload.dayData || {};
-  deleteDayRows(date);
+  var legacy = payload.dayData || {};
+  var serviceId = payload.serviceId || DEFAULT_SERVICE_ID;
+  var meals = payload.meals || legacy;
+  var note = payload.note !== undefined ? payload.note : legacy.note;
+  deleteDayRows(date, serviceId);
   var sheet = ensureEntriesSheet();
-  ['breakfast', 'lunch', 'dinner'].forEach(function (meal) {
-    var mealData = dayData[meal] || {};
+  MEALS.forEach(function (meal) {
+    var mealData = meals[meal] || {};
     Object.keys(mealData).forEach(function (person) {
       var qty = Number(mealData[person]);
-      if (qty > 0) sheet.appendRow([date, meal, person, qty]);
+      if (qty > 0) sheet.appendRow([date, meal, person, qty, serviceId]);
     });
   });
-  setNote(date, dayData.note || '');
+  setNote(date, note || '');
   return { entries: getEntries() };
 }
 
@@ -265,43 +372,51 @@ function deleteDay(payload) {
 // silently reverted by the next sync pulling the old remote state.
 function replaceAll(payload) {
   var people = payload.people || [];
-  var prices = payload.prices || { breakfast: 0, lunch: 0, dinner: 0 };
   var entries = payload.entries || {};
+  // An older page sends a single price list instead of services.
+  var services = cleanServices(payload.services);
+  if (services.length === 0) {
+    services = cleanServices([{ id: DEFAULT_SERVICE_ID, name: 'Tiffin 1', prices: payload.prices }]);
+  }
 
   var peopleSheet = getSheet('People');
   peopleSheet.clear();
-  people.forEach(function (name) {
-    peopleSheet.appendRow([name]);
-  });
+  if (people.length) {
+    peopleSheet.getRange(1, 1, people.length, 1).setValues(people.map(function (name) { return [name]; }));
+  }
 
-  var pricesSheet = getSheet('Prices');
-  pricesSheet.clear();
-  pricesSheet.appendRow(['breakfast', 'lunch', 'dinner']);
-  pricesSheet.appendRow([
-    Number(prices.breakfast) || 0,
-    Number(prices.lunch) || 0,
-    Number(prices.dinner) || 0
-  ]);
+  writeServices(services);
+
+  var entryRows = [['Date', 'Meal', 'Person', 'Qty', 'Service']];
+  var noteRows = [['Date', 'Note']];
+  Object.keys(entries).forEach(function (date) {
+    var day = entries[date] || {};
+    // Older shape: meals directly on the day, belonging to the default service.
+    var byService = day.byService;
+    if (!byService) {
+      byService = {};
+      byService[DEFAULT_SERVICE_ID] = day;
+    }
+    Object.keys(byService).forEach(function (sid) {
+      var block = byService[sid] || {};
+      MEALS.forEach(function (meal) {
+        var mealData = block[meal] || {};
+        Object.keys(mealData).forEach(function (person) {
+          var qty = Number(mealData[person]);
+          if (qty > 0) entryRows.push([date, meal, person, qty, sid]);
+        });
+      });
+    });
+    if (day.note) noteRows.push([date, day.note]);
+  });
 
   var entriesSheet = getSheet('Entries');
   entriesSheet.clear();
-  entriesSheet.appendRow(['Date', 'Meal', 'Person', 'Qty']);
+  entriesSheet.getRange(1, 1, entryRows.length, 5).setValues(entryRows);
 
   var notesSheet = getSheet('Notes');
   notesSheet.clear();
-  notesSheet.appendRow(['Date', 'Note']);
-
-  Object.keys(entries).forEach(function (date) {
-    var dayData = entries[date];
-    ['breakfast', 'lunch', 'dinner'].forEach(function (meal) {
-      var mealData = (dayData && dayData[meal]) || {};
-      Object.keys(mealData).forEach(function (person) {
-        var qty = Number(mealData[person]);
-        if (qty > 0) entriesSheet.appendRow([date, meal, person, qty]);
-      });
-    });
-    if (dayData && dayData.note) notesSheet.appendRow([date, dayData.note]);
-  });
+  notesSheet.getRange(1, 1, noteRows.length, 2).setValues(noteRows);
 
   return getAllData();
 }

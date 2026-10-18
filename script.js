@@ -16,14 +16,24 @@
   const DEFAULT_SYNC_URL = "https://script.google.com/macros/s/AKfycbwPXiQFBokBweoNq2QR7_rslSAg1RWyQ35eI9HOYl4DvYb3SVyh4uG-7IysUbPs_p6f6Q/exec";
   const DEFAULT_SYNC_TOKEN = "RknxZu9OHyZNWfYbSLPWLcyI769RN6a2";
 
+  // Entries logged before tiffin services existed belong to this service.
+  // Must match DEFAULT_SERVICE_ID in apps-script/Code.gs.
+  const DEFAULT_SERVICE_ID = "s1";
+
   const STORE_KEYS = {
     people: "tiffin_people",
-    prices: "tiffin_prices",
+    prices: "tiffin_prices", // legacy: single global price list, migrated into services
+    services: "tiffin_services",
+    lastService: "tiffin_last_service",
     entries: "tiffin_entries",
     syncUrl: "tiffin_sync_url",
     syncToken: "tiffin_sync_token",
     authed: "tiffin_authed"
   };
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
 
   function load(key, fallback) {
     try {
@@ -46,17 +56,71 @@
     document.body.classList.toggle("is-admin", isAdmin());
   }
 
+  // Older data (and older servers) keep meals directly on the day, with no
+  // service. Wrap those into the default service so everything downstream
+  // only deals with the byService shape.
+  function normalizeEntries(raw) {
+    const out = {};
+    Object.keys(raw || {}).forEach((date) => {
+      const day = raw[date] || {};
+      let byService = day.byService;
+      if (!byService) {
+        const legacy = {};
+        MEALS.forEach((m) => { legacy[m] = day[m] || {}; });
+        const hasAny = MEALS.some((m) => Object.keys(legacy[m]).length > 0);
+        byService = hasAny ? { [DEFAULT_SERVICE_ID]: legacy } : {};
+      }
+      const clean = { byService };
+      if (day.note) clean.note = day.note;
+      if (Object.keys(byService).length || clean.note) out[date] = clean;
+    });
+    return out;
+  }
+
   let people = load(STORE_KEYS.people, []);
-  let prices = load(STORE_KEYS.prices, { breakfast: 0, lunch: 0, dinner: 0 });
-  // entries: { "YYYY-MM-DD": { breakfast: {name: qty}, lunch: {...}, dinner: {...} } }
-  let entries = load(STORE_KEYS.entries, {});
+  // services: [{ id, name, prices: { breakfast, lunch, dinner } }]
+  let services = load(STORE_KEYS.services, null) || [{
+    id: DEFAULT_SERVICE_ID,
+    name: "Tiffin 1",
+    prices: load(STORE_KEYS.prices, { breakfast: 0, lunch: 0, dinner: 0 })
+  }];
+  // entries: { "YYYY-MM-DD": { note?, byService: { [serviceId]: { breakfast: {name: qty}, lunch: {...}, dinner: {...} } } } }
+  let entries = normalizeEntries(load(STORE_KEYS.entries, {}));
   let syncUrl = load(STORE_KEYS.syncUrl, DEFAULT_SYNC_URL);
   let syncToken = load(STORE_KEYS.syncToken, DEFAULT_SYNC_TOKEN);
 
   function persistAll() {
     save(STORE_KEYS.people, people);
-    save(STORE_KEYS.prices, prices);
+    save(STORE_KEYS.services, services);
     save(STORE_KEYS.entries, entries);
+  }
+
+  function serviceById(id) { return services.find((s) => s.id === id); }
+  function serviceName(id) { const s = serviceById(id); return s ? s.name : "Removed service"; }
+  function servicePrice(id, meal) {
+    const s = serviceById(id);
+    return s ? Number(s.prices && s.prices[meal]) || 0 : 0;
+  }
+  function newServiceId() {
+    return "s" + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+  }
+  function serviceHasEntries(id) {
+    return Object.keys(entries).some((d) => entries[d].byService && entries[d].byService[id]);
+  }
+
+  // Merge a server response into local state (shared by sync and push).
+  function applyRemote(data) {
+    if (data.people) people = data.people;
+    if (Array.isArray(data.services) && data.services.length) {
+      services = data.services;
+    } else if (data.prices) {
+      // Older backend without services: its single price list is the default service's.
+      const def = serviceById(DEFAULT_SERVICE_ID);
+      if (def) def.prices = data.prices;
+    }
+    if (data.entries) entries = normalizeEntries(data.entries);
+    persistAll();
+    refreshActiveTab();
   }
 
   // ---------- REMOTE SYNC (Google Apps Script Web App) ----------
@@ -139,12 +203,7 @@
     if (!syncUrl) return;
     if (showStatus) setSyncStatus("Syncing…", false);
     try {
-      const data = await remoteGetAll();
-      if (data.people) people = data.people;
-      if (data.prices) prices = data.prices;
-      if (data.entries) entries = data.entries;
-      persistAll();
-      refreshActiveTab();
+      applyRemote(await remoteGetAll());
       if (showStatus) setSyncStatus("Synced with Google Sheet.", false);
     } catch (err) {
       if (showStatus) setSyncStatus("Could not reach the sheet — showing last saved data.", true);
@@ -154,12 +213,7 @@
   async function pushToRemote(action, payload) {
     if (!syncUrl) return;
     try {
-      const data = await remotePost(action, payload);
-      if (data.people) people = data.people;
-      if (data.prices) prices = data.prices;
-      if (data.entries) entries = data.entries;
-      persistAll();
-      refreshActiveTab();
+      applyRemote(await remotePost(action, payload));
       setSyncStatus("Synced with Google Sheet.", false);
     } catch (err) {
       setSyncStatus("Saved on this device, but sync to the sheet failed. Check your connection.", true);
@@ -209,18 +263,27 @@
   entryDateInput.value = todayStr();
 
   function buildDaySummaryHtml(dayData) {
-    const lines = MEALS.map((meal) => {
-      const mealEntries = dayData[meal] || {};
-      const namesWithQty = Object.keys(mealEntries).filter((n) => mealEntries[n] > 0);
-      if (namesWithQty.length === 0) return "";
-      const tag = `<span class="meal-tag ${meal}">${MEAL_LABEL[meal]}</span>`;
-      const parts = namesWithQty.map((n) => `${n}: ${mealEntries[n]}`).join(", ");
-      return `<div class="day-line">${tag}${parts}</div>`;
-    }).join("");
-    const note = dayData.note
-      ? `<div class="summary-note">📝 ${dayData.note}</div>`
-      : "";
-    return lines + note;
+    const byService = dayData.byService || {};
+    const showTags = services.length > 1;
+    let html = "";
+    // Same order as the services list, so editing one service doesn't make
+    // its block jump around.
+    const order = (id) => { const i = services.findIndex((s) => s.id === id); return i < 0 ? services.length : i; };
+    Object.keys(byService).sort((a, b) => order(a) - order(b)).forEach((sid) => {
+      const block = byService[sid];
+      const lines = MEALS.map((meal) => {
+        const mealEntries = block[meal] || {};
+        const namesWithQty = Object.keys(mealEntries).filter((n) => mealEntries[n] > 0);
+        if (namesWithQty.length === 0) return "";
+        const tag = `<span class="meal-tag ${meal}">${MEAL_LABEL[meal]}</span>`;
+        const parts = namesWithQty.map((n) => `${esc(n)}: ${mealEntries[n]}`).join(", ");
+        return `<div class="day-line">${tag}${parts}</div>`;
+      }).join("");
+      if (!lines) return;
+      html += (showTags ? `<div><span class="svc-tag">${esc(serviceName(sid))}</span></div>` : "") + lines;
+    });
+    if (dayData.note) html += `<div class="summary-note">📝 ${esc(dayData.note)}</div>`;
+    return html;
   }
 
   function renderEntrySummary() {
@@ -246,6 +309,38 @@
   const modalDateInput = document.getElementById("modal-date");
   const modalPersonList = document.getElementById("modal-person-list");
   const modalNoteInput = document.getElementById("modal-note");
+  const modalServiceSection = document.getElementById("modal-service-section");
+  const modalServiceChips = document.getElementById("modal-service-chips");
+  const modalServiceHint = document.getElementById("modal-service-hint");
+  let modalServiceId = null;
+
+  function serviceBlock(date, sid) {
+    const day = entries[date];
+    return (day && day.byService && day.byService[sid]) || {};
+  }
+
+  function buildModalServiceChips() {
+    const date = modalDateInput.value || todayStr();
+    // With a single service there is nothing to choose.
+    modalServiceSection.hidden = services.length < 2;
+    modalServiceChips.innerHTML = "";
+    services.forEach((svc) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip" + (svc.id === modalServiceId ? " selected" : "");
+      if (entries[date] && entries[date].byService && entries[date].byService[svc.id]) chip.classList.add("has-data");
+      chip.textContent = svc.name;
+      chip.addEventListener("click", () => {
+        modalServiceId = svc.id;
+        buildModalServiceChips();
+        buildModalPersonList();
+      });
+      modalServiceChips.appendChild(chip);
+    });
+    modalServiceHint.textContent = MEALS
+      .map((m) => `${MEAL_LABEL[m]} ${fmtMoney(servicePrice(modalServiceId, m))}`)
+      .join(" · ");
+  }
 
   function buildModalPersonList() {
     modalPersonList.innerHTML = "";
@@ -257,7 +352,7 @@
     }
 
     const date = modalDateInput.value || todayStr();
-    const dayData = entries[date] || {};
+    const dayData = serviceBlock(date, modalServiceId);
 
     people.forEach((person) => {
       const hasExisting = MEALS.some((meal) => dayData[meal] && dayData[meal][person] > 0);
@@ -313,6 +408,9 @@
   function openModal() {
     modalDateInput.value = entryDateInput.value || todayStr();
     modalNoteInput.value = (entries[modalDateInput.value] && entries[modalDateInput.value].note) || "";
+    const last = load(STORE_KEYS.lastService, null);
+    modalServiceId = serviceById(last) ? last : services[0].id;
+    buildModalServiceChips();
     buildModalPersonList();
     modalOverlay.classList.add("open");
   }
@@ -333,12 +431,14 @@
 
   modalDateInput.addEventListener("change", () => {
     modalNoteInput.value = (entries[modalDateInput.value] && entries[modalDateInput.value].note) || "";
+    buildModalServiceChips();
     buildModalPersonList();
   });
 
   document.getElementById("modal-save-btn").addEventListener("click", () => {
     const date = modalDateInput.value || todayStr();
-    const dayData = { breakfast: {}, lunch: {}, dinner: {} };
+    const sid = modalServiceId;
+    const meals = { breakfast: {}, lunch: {}, dinner: {} };
     let anyValue = false;
 
     modalPersonList.querySelectorAll('input[data-person-toggle]').forEach((checkbox) => {
@@ -348,20 +448,24 @@
       grid.querySelectorAll("input[data-meal]").forEach((inp) => {
         const qty = parseInt(inp.value, 10);
         if (!isNaN(qty) && qty > 0) {
-          dayData[inp.dataset.meal][person] = qty;
+          meals[inp.dataset.meal][person] = qty;
           anyValue = true;
         }
       });
     });
 
     const note = modalNoteInput.value.trim();
-    if (note) dayData.note = note;
 
-    if (anyValue || note) {
-      entries[date] = dayData;
-    } else {
-      delete entries[date];
-    }
+    // Saving replaces only this service's tiffins for the day; the other
+    // service's tiffins stay as they were. The note belongs to the whole day.
+    const day = entries[date] || { byService: {} };
+    if (anyValue) day.byService[sid] = meals;
+    else delete day.byService[sid];
+    if (note) day.note = note;
+    else delete day.note;
+    if (Object.keys(day.byService).length || day.note) entries[date] = day;
+    else delete entries[date];
+    save(STORE_KEYS.lastService, sid);
     persistAll();
 
     closeModal();
@@ -371,7 +475,7 @@
     entryStatus.textContent = `Saved entry for ${fmtDateNice(date)}.`;
     setTimeout(() => (entryStatus.textContent = ""), 2500);
 
-    pushToRemote("saveDay", { date, dayData });
+    pushToRemote("saveDay", { date, serviceId: sid, meals, note });
   });
 
   document.getElementById("sync-now-entry-btn").addEventListener("click", () => {
@@ -446,39 +550,51 @@
   }
 
   function summarize(datesInRange) {
-    // returns { person: {breakfast, lunch, dinner, totalQty, cost} }, plus grand totals
+    // Per person and per service: meal counts plus cost, where each tiffin is
+    // priced by the service it came from.
+    const blank = () => ({ breakfast: 0, lunch: 0, dinner: 0, cost: 0 });
     const summary = {};
-    people.forEach((p) => {
-      summary[p] = { breakfast: 0, lunch: 0, dinner: 0 };
-    });
+    const bySvc = {};
+    people.forEach((p) => { summary[p] = blank(); });
 
     datesInRange.forEach((date) => {
-      const dayData = entries[date];
-      if (!dayData) return;
-      MEALS.forEach((meal) => {
-        const mealEntries = dayData[meal] || {};
-        Object.keys(mealEntries).forEach((person) => {
-          if (!summary[person]) summary[person] = { breakfast: 0, lunch: 0, dinner: 0 };
-          summary[person][meal] += mealEntries[person];
+      const day = entries[date];
+      if (!day || !day.byService) return;
+      Object.keys(day.byService).forEach((sid) => {
+        const block = day.byService[sid];
+        if (!bySvc[sid]) bySvc[sid] = blank();
+        MEALS.forEach((meal) => {
+          const mealEntries = block[meal] || {};
+          Object.keys(mealEntries).forEach((person) => {
+            const qty = mealEntries[person];
+            const cost = qty * servicePrice(sid, meal);
+            if (!summary[person]) summary[person] = blank();
+            summary[person][meal] += qty;
+            summary[person].cost += cost;
+            bySvc[sid][meal] += qty;
+            bySvc[sid].cost += cost;
+          });
         });
       });
     });
 
-    let grand = { breakfast: 0, lunch: 0, dinner: 0, cost: 0 };
+    const grand = blank();
     Object.keys(summary).forEach((person) => {
       const s = summary[person];
       s.totalQty = s.breakfast + s.lunch + s.dinner;
-      s.cost = s.breakfast * (prices.breakfast || 0) + s.lunch * (prices.lunch || 0) + s.dinner * (prices.dinner || 0);
       grand.breakfast += s.breakfast;
       grand.lunch += s.lunch;
       grand.dinner += s.dinner;
       grand.cost += s.cost;
     });
+    Object.keys(bySvc).forEach((sid) => {
+      bySvc[sid].totalQty = bySvc[sid].breakfast + bySvc[sid].lunch + bySvc[sid].dinner;
+    });
 
-    return { summary, grand };
+    return { summary, grand, bySvc };
   }
 
-  function buildSummaryTable(summary, grand) {
+  function buildSummaryTable(summary, grand, bySvc) {
     const names = Object.keys(summary).filter((n) => people.includes(n) || summary[n].totalQty > 0);
     if (names.length === 0) {
       return '<p class="empty-msg">No tiffins recorded in this period.</p>';
@@ -487,9 +603,22 @@
     let html = "<table><thead><tr><th>Person</th><th>Breakfast</th><th>Lunch</th><th>Dinner</th><th>Total</th><th>Cost</th></tr></thead><tbody>";
     names.forEach((name) => {
       const s = summary[name];
-      html += `<tr><td>${name}</td><td>${s.breakfast}</td><td>${s.lunch}</td><td>${s.dinner}</td><td>${s.totalQty}</td><td>${fmtMoney(s.cost)}</td></tr>`;
+      html += `<tr><td>${esc(name)}</td><td>${s.breakfast}</td><td>${s.lunch}</td><td>${s.dinner}</td><td>${s.totalQty}</td><td>${fmtMoney(s.cost)}</td></tr>`;
     });
     html += `</tbody><tfoot><tr><td>Total</td><td>${grand.breakfast}</td><td>${grand.lunch}</td><td>${grand.dinner}</td><td>${grand.breakfast + grand.lunch + grand.dinner}</td><td>${fmtMoney(grand.cost)}</td></tr></tfoot></table>`;
+
+    // What each provider is owed for the period.
+    if (services.length > 1) {
+      const ids = Object.keys(bySvc).sort((a, b) => services.findIndex((s) => s.id === a) - services.findIndex((s) => s.id === b));
+      if (ids.length) {
+        html += '<div class="section-subtitle">By tiffin service</div><table><thead><tr><th>Service</th><th>Breakfast</th><th>Lunch</th><th>Dinner</th><th>Total</th><th>Cost</th></tr></thead><tbody>';
+        ids.forEach((sid) => {
+          const s = bySvc[sid];
+          html += `<tr><td>${esc(serviceName(sid))}</td><td>${s.breakfast}</td><td>${s.lunch}</td><td>${s.dinner}</td><td>${s.totalQty}</td><td>${fmtMoney(s.cost)}</td></tr>`;
+        });
+        html += "</tbody></table>";
+      }
+    }
     return html;
   }
 
@@ -507,8 +636,8 @@
       cursor.setDate(cursor.getDate() + 1);
     }
 
-    const { summary, grand } = summarize(dates);
-    document.getElementById("weekly-table-wrap").innerHTML = buildSummaryTable(summary, grand);
+    const { summary, grand, bySvc } = summarize(dates);
+    document.getElementById("weekly-table-wrap").innerHTML = buildSummaryTable(summary, grand, bySvc);
   }
 
   weekPick.addEventListener("change", renderWeekly);
@@ -527,8 +656,8 @@
       dates.push(`${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
     }
 
-    const { summary, grand } = summarize(dates);
-    document.getElementById("monthly-table-wrap").innerHTML = buildSummaryTable(summary, grand);
+    const { summary, grand, bySvc } = summarize(dates);
+    document.getElementById("monthly-table-wrap").innerHTML = buildSummaryTable(summary, grand, bySvc);
   }
 
   monthPick.addEventListener("change", renderMonthly);
@@ -559,10 +688,98 @@
       list.appendChild(li);
     });
 
-    document.getElementById("price-breakfast").value = prices.breakfast || 0;
-    document.getElementById("price-lunch").value = prices.lunch || 0;
-    document.getElementById("price-dinner").value = prices.dinner || 0;
+    renderServices();
   }
+
+  // ---------- TIFFIN SERVICES ----------
+  const servicesListEl = document.getElementById("services-list");
+
+  function renderServices() {
+    servicesListEl.innerHTML = "";
+    services.forEach((svc) => {
+      const card = document.createElement("div");
+      card.className = "service-card";
+      card.dataset.serviceId = svc.id;
+
+      const head = document.createElement("div");
+      head.className = "service-card-head";
+      const name = document.createElement("span");
+      name.textContent = svc.name;
+      const removeBtn = document.createElement("button");
+      removeBtn.textContent = "Remove";
+      removeBtn.addEventListener("click", () => removeService(svc.id));
+      head.appendChild(name);
+      head.appendChild(removeBtn);
+
+      const grid = document.createElement("div");
+      grid.className = "service-prices";
+      MEALS.forEach((meal) => {
+        const label = document.createElement("label");
+        label.textContent = `${MEAL_EMOJI[meal]} ${MEAL_LABEL[meal]} ₹`;
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "0";
+        input.step = "0.5";
+        input.dataset.meal = meal;
+        input.value = (svc.prices && svc.prices[meal]) || 0;
+        label.appendChild(input);
+        grid.appendChild(label);
+      });
+
+      card.appendChild(head);
+      card.appendChild(grid);
+      servicesListEl.appendChild(card);
+    });
+  }
+
+  // Pick up price edits that haven't been saved yet, so adding/removing a
+  // service (which re-renders the list) doesn't throw them away.
+  function readServicePricesFromDom() {
+    servicesListEl.querySelectorAll(".service-card").forEach((card) => {
+      const svc = serviceById(card.dataset.serviceId);
+      if (!svc) return;
+      card.querySelectorAll("input[data-meal]").forEach((inp) => {
+        svc.prices[inp.dataset.meal] = parseFloat(inp.value) || 0;
+      });
+    });
+  }
+
+  function removeService(id) {
+    readServicePricesFromDom();
+    if (services.length <= 1) {
+      alert("Keep at least one tiffin service.");
+      return;
+    }
+    if (serviceHasEntries(id)) {
+      alert(`"${serviceName(id)}" has tiffins logged against it, so it can't be removed. Delete those days from the Log first.`);
+      return;
+    }
+    if (!confirm(`Remove ${serviceName(id)}?`)) return;
+    services = services.filter((s) => s.id !== id);
+    persistAll();
+    renderServices();
+    pushToRemote("saveServices", { services });
+  }
+
+  document.getElementById("add-service-btn").addEventListener("click", () => {
+    const input = document.getElementById("new-service-name");
+    const name = input.value.trim();
+    if (!name) return;
+    if (services.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
+      alert("A service with this name already exists.");
+      return;
+    }
+    readServicePricesFromDom();
+    services.push({ id: newServiceId(), name, prices: { breakfast: 0, lunch: 0, dinner: 0 } });
+    persistAll();
+    input.value = "";
+    renderServices();
+    pushToRemote("saveServices", { services });
+  });
+
+  document.getElementById("new-service-name").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("add-service-btn").click();
+  });
 
   document.getElementById("add-person-btn").addEventListener("click", () => {
     const input = document.getElementById("new-person-name");
@@ -584,16 +801,12 @@
   });
 
   document.getElementById("save-prices-btn").addEventListener("click", () => {
-    prices = {
-      breakfast: parseFloat(document.getElementById("price-breakfast").value) || 0,
-      lunch: parseFloat(document.getElementById("price-lunch").value) || 0,
-      dinner: parseFloat(document.getElementById("price-dinner").value) || 0
-    };
+    readServicePricesFromDom();
     persistAll();
     const status = document.getElementById("price-status");
     status.textContent = "Prices saved.";
     setTimeout(() => (status.textContent = ""), 2000);
-    pushToRemote("savePrices", prices);
+    pushToRemote("saveServices", { services });
   });
 
   // ---------- SYNC SETTINGS ----------
@@ -614,7 +827,7 @@
 
   // ---------- DATA EXPORT / IMPORT / RESET ----------
   document.getElementById("export-btn").addEventListener("click", () => {
-    const data = { people, prices, entries };
+    const data = { people, services, entries };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -638,13 +851,18 @@
       try {
         const data = JSON.parse(reader.result);
         if (data.people) people = data.people;
-        if (data.prices) prices = data.prices;
-        if (data.entries) entries = data.entries;
+        if (Array.isArray(data.services) && data.services.length) {
+          services = data.services;
+        } else if (data.prices) {
+          // Backup from before tiffin services existed.
+          services = [{ id: DEFAULT_SERVICE_ID, name: "Tiffin 1", prices: data.prices }];
+        }
+        if (data.entries) entries = normalizeEntries(data.entries);
         persistAll();
         alert("Data imported successfully.");
         renderPeople();
         renderEntrySummary();
-        pushToRemote("replaceAll", { people, prices, entries });
+        pushToRemote("replaceAll", { people, services, entries });
       } catch (err) {
         alert("Could not read that file. Make sure it's a valid export from this app.");
       }
@@ -659,12 +877,12 @@
       : "This will permanently erase all people, prices, and logged tiffins. Continue?";
     if (confirm(warning)) {
       people = [];
-      prices = { breakfast: 0, lunch: 0, dinner: 0 };
+      services = [{ id: DEFAULT_SERVICE_ID, name: "Tiffin 1", prices: { breakfast: 0, lunch: 0, dinner: 0 } }];
       entries = {};
       persistAll();
       renderPeople();
       renderEntrySummary();
-      pushToRemote("replaceAll", { people, prices, entries });
+      pushToRemote("replaceAll", { people, services, entries });
     }
   });
 
